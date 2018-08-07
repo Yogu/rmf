@@ -6,11 +6,14 @@
 #include <ESPAsyncTCP.h>
 #include <ESPAsyncWebServer.h>
 #include <SPIFFSEditor.h>
+#include "motor.hpp"
 
 // SKETCH BEGIN
 AsyncWebServer server(80);
 AsyncWebSocket ws("/ws");
 AsyncEventSource events("/events");
+
+Motor motor(D1, D2);
 
 void onWsEvent(AsyncWebSocket * server, AsyncWebSocketClient * client, AwsEventType type, void * arg, uint8_t *data, size_t len){
   if(type == WS_EVT_CONNECT){
@@ -44,9 +47,14 @@ void onWsEvent(AsyncWebSocket * server, AsyncWebSocketClient * client, AwsEventT
       Serial.printf("%s\n",msg.c_str());
 
       if(info->opcode == WS_TEXT)
+      {
         client->text("I got your text message");
+        motor.setSpeed(Motor::MAX_SPEED);
+      }
       else
+      {
         client->binary("I got your binary message");
+      }
     } else {
       //message is comprised of multiple frames or the frame is split into multiple packets
       if(info->index == 0){
