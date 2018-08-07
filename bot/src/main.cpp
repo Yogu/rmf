@@ -1,162 +1,209 @@
-
-
-/*********
-  Rui Santos
-  Complete project details at http://randomnerdtutorials.com  
-*********/
-
-// Load Wi-Fi library
 #include <ESP8266WiFi.h>
-#include <string>
+#include <ESP8266mDNS.h>
+#include <ArduinoOTA.h>
+#include <FS.h>
+#include <Hash.h>
+#include <ESPAsyncTCP.h>
+#include <ESPAsyncWebServer.h>
+#include <SPIFFSEditor.h>
+
+// SKETCH BEGIN
+AsyncWebServer server(80);
+AsyncWebSocket ws("/ws");
+AsyncEventSource events("/events");
+
+void onWsEvent(AsyncWebSocket * server, AsyncWebSocketClient * client, AwsEventType type, void * arg, uint8_t *data, size_t len){
+  if(type == WS_EVT_CONNECT){
+    Serial.printf("ws[%s][%u] connect\n", server->url(), client->id());
+    client->printf("Hello Client %u :)", client->id());
+    client->ping();
+  } else if(type == WS_EVT_DISCONNECT){
+    Serial.printf("ws[%s][%u] disconnect: %u\n", server->url(), client->id());
+  } else if(type == WS_EVT_ERROR){
+    Serial.printf("ws[%s][%u] error(%u): %s\n", server->url(), client->id(), *((uint16_t*)arg), (char*)data);
+  } else if(type == WS_EVT_PONG){
+    Serial.printf("ws[%s][%u] pong[%u]: %s\n", server->url(), client->id(), len, (len)?(char*)data:"");
+  } else if(type == WS_EVT_DATA){
+    AwsFrameInfo * info = (AwsFrameInfo*)arg;
+    String msg = "";
+    if(info->final && info->index == 0 && info->len == len){
+      //the whole message is in a single frame and we got all of it's data
+      Serial.printf("ws[%s][%u] %s-message[%llu]: ", server->url(), client->id(), (info->opcode == WS_TEXT)?"text":"binary", info->len);
+
+      if(info->opcode == WS_TEXT){
+        for(size_t i=0; i < info->len; i++) {
+          msg += (char) data[i];
+        }
+      } else {
+        char buff[3];
+        for(size_t i=0; i < info->len; i++) {
+          sprintf(buff, "%02x ", (uint8_t) data[i]);
+          msg += buff ;
+        }
+      }
+      Serial.printf("%s\n",msg.c_str());
+
+      if(info->opcode == WS_TEXT)
+        client->text("I got your text message");
+      else
+        client->binary("I got your binary message");
+    } else {
+      //message is comprised of multiple frames or the frame is split into multiple packets
+      if(info->index == 0){
+        if(info->num == 0)
+          Serial.printf("ws[%s][%u] %s-message start\n", server->url(), client->id(), (info->message_opcode == WS_TEXT)?"text":"binary");
+        Serial.printf("ws[%s][%u] frame[%u] start[%llu]\n", server->url(), client->id(), info->num, info->len);
+      }
+
+      Serial.printf("ws[%s][%u] frame[%u] %s[%llu - %llu]: ", server->url(), client->id(), info->num, (info->message_opcode == WS_TEXT)?"text":"binary", info->index, info->index + len);
+
+      if(info->opcode == WS_TEXT){
+        for(size_t i=0; i < info->len; i++) {
+          msg += (char) data[i];
+        }
+      } else {
+        char buff[3];
+        for(size_t i=0; i < info->len; i++) {
+          sprintf(buff, "%02x ", (uint8_t) data[i]);
+          msg += buff ;
+        }
+      }
+      Serial.printf("%s\n",msg.c_str());
+
+      if((info->index + len) == info->len){
+        Serial.printf("ws[%s][%u] frame[%u] end[%llu]\n", server->url(), client->id(), info->num, info->len);
+        if(info->final){
+          Serial.printf("ws[%s][%u] %s-message end\n", server->url(), client->id(), (info->message_opcode == WS_TEXT)?"text":"binary");
+          if(info->message_opcode == WS_TEXT)
+            client->text("I got your text message");
+          else
+            client->binary("I got your binary message");
+        }
+      }
+    }
+  }
+}
 
 #include "../config.hpp"
+const char * hostName = "0.0.0.0";
+const char* http_username = "admin";
+const char* http_password = "admin";
 
-// Set web server port number to 80
-WiFiServer server(80);
-
-// Variable to store the HTTP request
-String header;
-
-// Auxiliar variables to store the current output state
-int dir = 0;
-
-// Assign output variables to GPIO pins
-const int output0 = D1;
-const int output1 = D2;
-
-const int OFF = 0;
-const int HALF = 512;
-const int FULL = 1023;
-
-void setup() {
+void setup(){
   Serial.begin(115200);
-  // Initialize the output variables as outputs
-  pinMode(output1, OUTPUT);
-  pinMode(output0, OUTPUT);
-  // Set outputs to LOW
-  analogWrite(output1, OFF);
-  analogWrite(output0, OFF);
-
-  // Connect to Wi-Fi network with SSID and password
-  Serial.print("Connecting to ");
-  Serial.println(ssid);
+  Serial.setDebugOutput(true);
+  //WiFi.hostname(hostName);
+  //WiFi.mode(WIFI_AP_STA);
+  //WiFi.softAP(hostName);
   WiFi.begin(ssid, password);
-  while (WiFi.status() != WL_CONNECTED) {
-    delay(500);
-    Serial.print(".");
+  if (WiFi.waitForConnectResult() != WL_CONNECTED) {
+    Serial.printf("STA: Failed!\n");
+    WiFi.disconnect(false);
+    delay(1000);
+    WiFi.begin(ssid, password);
   }
-  // Print local IP address and start web server
-  Serial.println("");
-  Serial.println("WiFi connected.");
-  Serial.println("IP address: ");
-  Serial.println(WiFi.localIP());
+
+  //Send OTA events to the browser
+  ArduinoOTA.onStart([]() { events.send("Update Start", "ota"); });
+  ArduinoOTA.onEnd([]() { events.send("Update End", "ota"); });
+  ArduinoOTA.onProgress([](unsigned int progress, unsigned int total) {
+    char p[32];
+    sprintf(p, "Progress: %u%%\n", (progress/(total/100)));
+    events.send(p, "ota");
+  });
+  ArduinoOTA.onError([](ota_error_t error) {
+    if(error == OTA_AUTH_ERROR) events.send("Auth Failed", "ota");
+    else if(error == OTA_BEGIN_ERROR) events.send("Begin Failed", "ota");
+    else if(error == OTA_CONNECT_ERROR) events.send("Connect Failed", "ota");
+    else if(error == OTA_RECEIVE_ERROR) events.send("Recieve Failed", "ota");
+    else if(error == OTA_END_ERROR) events.send("End Failed", "ota");
+  });
+  ArduinoOTA.setHostname(hostName);
+  ArduinoOTA.begin();
+
+  MDNS.addService("http","tcp",80);
+
+  SPIFFS.begin();
+
+  ws.onEvent(onWsEvent);
+  server.addHandler(&ws);
+
+  events.onConnect([](AsyncEventSourceClient *client){
+    client->send("hello!",NULL,millis(),1000);
+  });
+  server.addHandler(&events);
+
+  server.addHandler(new SPIFFSEditor(http_username,http_password));
+
+  server.on("/heap", HTTP_GET, [](AsyncWebServerRequest *request){
+    request->send(200, "text/plain", String(ESP.getFreeHeap()));
+  });
+
+  server.serveStatic("/", SPIFFS, "/").setDefaultFile("index.htm");
+
+  server.onNotFound([](AsyncWebServerRequest *request){
+    Serial.printf("NOT_FOUND: ");
+    if(request->method() == HTTP_GET)
+      Serial.printf("GET");
+    else if(request->method() == HTTP_POST)
+      Serial.printf("POST");
+    else if(request->method() == HTTP_DELETE)
+      Serial.printf("DELETE");
+    else if(request->method() == HTTP_PUT)
+      Serial.printf("PUT");
+    else if(request->method() == HTTP_PATCH)
+      Serial.printf("PATCH");
+    else if(request->method() == HTTP_HEAD)
+      Serial.printf("HEAD");
+    else if(request->method() == HTTP_OPTIONS)
+      Serial.printf("OPTIONS");
+    else
+      Serial.printf("UNKNOWN");
+    Serial.printf(" http://%s%s\n", request->host().c_str(), request->url().c_str());
+
+    if(request->contentLength()){
+      Serial.printf("_CONTENT_TYPE: %s\n", request->contentType().c_str());
+      Serial.printf("_CONTENT_LENGTH: %u\n", request->contentLength());
+    }
+
+    int headers = request->headers();
+    int i;
+    for(i=0;i<headers;i++){
+      AsyncWebHeader* h = request->getHeader(i);
+      Serial.printf("_HEADER[%s]: %s\n", h->name().c_str(), h->value().c_str());
+    }
+
+    int params = request->params();
+    for(i=0;i<params;i++){
+      AsyncWebParameter* p = request->getParam(i);
+      if(p->isFile()){
+        Serial.printf("_FILE[%s]: %s, size: %u\n", p->name().c_str(), p->value().c_str(), p->size());
+      } else if(p->isPost()){
+        Serial.printf("_POST[%s]: %s\n", p->name().c_str(), p->value().c_str());
+      } else {
+        Serial.printf("_GET[%s]: %s\n", p->name().c_str(), p->value().c_str());
+      }
+    }
+
+    request->send(404);
+  });
+  server.onFileUpload([](AsyncWebServerRequest *request, const String& filename, size_t index, uint8_t *data, size_t len, bool final){
+    if(!index)
+      Serial.printf("UploadStart: %s\n", filename.c_str());
+    Serial.printf("%s", (const char*)data);
+    if(final)
+      Serial.printf("UploadEnd: %s (%u)\n", filename.c_str(), index+len);
+  });
+  server.onRequestBody([](AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total){
+    if(!index)
+      Serial.printf("BodyStart: %u\n", total);
+    Serial.printf("%s", (const char*)data);
+    if(index + len == total)
+      Serial.printf("BodyEnd: %u\n", total);
+  });
   server.begin();
 }
 
 void loop(){
-  WiFiClient client = server.available();   // Listen for incoming clients
-
-  if (client) {                             // If a new client connects,
-    Serial.println("New Client.");          // print a message out in the serial port
-    String currentLine = "";                // make a String to hold incoming data from the client
-    while (client.connected()) {            // loop while the client's connected
-      if (client.available()) {             // if there's bytes to read from the client,
-        char c = client.read();             // read a byte, then
-        //Serial.write(c);                    // print it out the serial monitor
-        header += c;
-        if (c == '\n') {                    // if the byte is a newline character
-          // if the current line is blank, you got two newline characters in a row.
-          // that's the end of the client HTTP request, so send a response:
-          if (currentLine.length() == 0) {
-            // HTTP headers always start with a response code (e.g. HTTP/1.1 200 OK)
-            // and a content-type so the client knows what's coming, then a blank line:
-
-            
-            client.println("HTTP/1.1 200 OK");
-            client.println("Content-type:text/html");
-            client.println("Connection: close");
-            client.println();
-            
-            // turns the GPIOs on and off
-            if (header.indexOf("GET /-2") >= 0) {
-              Serial.println("-2");
-              dir = -2;
-              analogWrite(output0, FULL);
-              analogWrite(output1, OFF);
-            } else if (header.indexOf("GET /-1") >= 0) {
-              Serial.println("-1");
-              dir = -1;
-              analogWrite(output0, HALF);
-              analogWrite(output1, OFF);
-            } else if (header.indexOf("GET /0") >= 0) {
-              Serial.println("0");
-              dir = 0;
-              analogWrite(output0, OFF);
-              analogWrite(output1, OFF);
-            } else if (header.indexOf("GET /1") >= 0) {
-              Serial.println("1");
-              dir = 1;
-              analogWrite(output0, OFF);
-              analogWrite(output1, HALF);
-            } else if (header.indexOf("GET /2") >= 0) {
-              Serial.println("2");
-              dir = 2;
-              analogWrite(output0, OFF);
-              analogWrite(output1, FULL);
-            }
-            
-            // Display the HTML web page
-            client.println("<!DOCTYPE html><html>");
-            client.println("<head><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">");
-            client.println("<link rel=\"icon\" href=\"data:,\">");
-            // CSS to style the on/off buttons 
-            // Feel free to change the background-color and font-size attributes to fit your preferences
-            client.println("<style>html { font-family: Helvetica; display: inline-block; margin: 0px auto; text-align: center;}");
-            client.println(".button { background-color: #195B6A; border: none; color: white; padding: 16px 40px;");
-            client.println("text-decoration: none; font-size: 30px; margin: 2px; cursor: pointer;}");
-            client.println(".button2 {background-color: #77878A;}</style></head>");
-            
-            // Web Page Heading
-            client.println("<body><h1>ESP8266 Web Server</h1>");
-            
-            // Display current state, and ON/OFF buttons for GPIO 5
-            if (dir == -2) {
-              client.println("<p>state: -2</p>");
-            } else if (dir == -1) {
-              client.println("<p>state: -1</p>");
-            } else if (dir == 0) {
-              client.println("<p>state: 0</p>");
-            } else if (dir == 1) {
-              client.println("<p>state: 1</p>");
-            } else if (dir == 2) {
-              client.println("<p>state: 2</p>");
-            }
-            client.println("<p><a href=\"/-2\"><button class=\"button\">-2</button></a></p>");
-            client.println("<p><a href=\"/-1\"><button class=\"button\">-1</button></a></p>");
-            client.println("<p><a href=\"/0\"><button class=\"button\">0</button></a></p>");
-            client.println("<p><a href=\"/1\"><button class=\"button\">1</button></a></p>");
-            client.println("<p><a href=\"/2\"><button class=\"button\">2</button></a></p>");
-               
-            client.println("</body></html>");
-            
-            // The HTTP response ends with another blank line
-            client.println();
-            // Break out of the while loop
-            break;
-          } else { // if you got a newline, then clear currentLine
-            currentLine = "";
-          }
-        } else if (c != '\r') {  // if you got anything else but a carriage return character,
-          currentLine += c;      // add it to the end of the currentLine
-        }
-      }
-    }
-    // Clear the header variable
-    header = "";
-    // Close the connection
-    client.stop();
-    Serial.println("Client disconnected.");
-    Serial.println("");
-  }
+  ArduinoOTA.handle();
 }
-
