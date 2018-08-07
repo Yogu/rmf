@@ -9,9 +9,7 @@
 #include <ESP8266WiFi.h>
 #include <string>
 
-// Replace with your network credentials
-const char* ssid     = "FRITZ!Box 7412";
-const char* password = "";
+#include "../config.hpp"
 
 // Set web server port number to 80
 WiFiServer server(80);
