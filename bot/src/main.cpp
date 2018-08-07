@@ -51,6 +51,16 @@ void onWsEvent(AsyncWebSocket * server, AsyncWebSocketClient * client, AwsEventT
         client->text("I got your text message");
         motor.setSpeed(Motor::MAX_SPEED);
       }
+      else if (info->len >= 2 && data[0] == 1)
+      {
+          int speed = data[4] | (data[5]<<8) | (data[6]<<16) | (data[7]<<24);;
+
+            motor.setSpeed(speed);
+
+          char buf[30];
+          snprintf(buf, 30, "Changed speed: %d", speed);
+        client->text(buf);
+      }
       else
       {
         client->binary("I got your binary message");

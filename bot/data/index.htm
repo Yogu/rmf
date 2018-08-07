@@ -54,9 +54,10 @@
     function ge(s){ return document.getElementById(s);}
     function ce(s){ return document.createElement(s);}
     function stb(){ window.scrollTo(0, document.body.scrollHeight || document.documentElement.scrollHeight); }
-    function sendBlob(str){
-      var buf = new Uint8Array(str.length);
-      for (var i = 0; i < str.length; ++i) buf[i] = str.charCodeAt(i);
+    function sendSpeed(speed){
+      var buf = new Int32Array(2);
+      buf[0] = 1;
+      buf[1] = speed;
       ws.send(buf);
     }
     function addMessage(m){
@@ -94,7 +95,9 @@
       ge("input_el").onkeydown = function(e){
         stb();
         if(e.keyCode == 13 && ge("input_el").value != ""){
-          ws.send(ge("input_el").value);
+          const speed = +ge("input_el").value;
+          sendSpeed(speed);
+          addMessage('sent speed ' + speed);
           ge("input_el").value = "";
         }
       }
