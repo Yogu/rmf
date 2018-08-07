@@ -123,6 +123,7 @@
       startSocket();
       startEvents();
     }
+
     </script>
   </head>
   <body id="body" onload="onBodyLoad()">
@@ -130,5 +131,14 @@
     <div id="input_div">
       $<input type="text" value="" id="input_el">
     </div>
+
+    <input type="range" min="-1024" max="1024" value="0" step="1" id="speed">
+
+    <script>
+      const speedElement = document.getElementById('speed');
+      speedElement.addEventListener('input', value => {
+        sendSpeed(speedElement.value);
+      });
+    </script>
   </body>
 </html>
