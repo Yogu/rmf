@@ -13,7 +13,8 @@ AsyncWebServer server(80);
 AsyncWebSocket ws("/ws");
 AsyncEventSource events("/events");
 
-Motor motor(D1, D2);
+Motor motor1(D1, D2);
+Motor motor2(D3, D4);
 
 void onWsEvent(AsyncWebSocket * server, AsyncWebSocketClient * client, AwsEventType type, void * arg, uint8_t *data, size_t len){
   if(type == WS_EVT_CONNECT){
@@ -46,24 +47,15 @@ void onWsEvent(AsyncWebSocket * server, AsyncWebSocketClient * client, AwsEventT
       }
       Serial.printf("%s\n",msg.c_str());
 
-      if(info->opcode == WS_TEXT)
-      {
-        client->text("I got your text message");
-        motor.setSpeed(Motor::MAX_SPEED);
-      }
-      else if (info->len >= 2 && data[0] == 1)
+      if (info->opcode == WS_BINARY && info->len >= 2 && data[0] == 1)
       {
           int speed = data[4] | (data[5]<<8) | (data[6]<<16) | (data[7]<<24);;
-
-            motor.setSpeed(speed);
-
-          char buf[30];
-          snprintf(buf, 30, "Changed speed: %d", speed);
-        client->text(buf);
+          motor1.setSpeed(speed);
       }
-      else
+      else if(info->opcode == WS_BINARY && info->len >= 2 && data[0] == 2)
       {
-        client->binary("I got your binary message");
+          int speed = data[4] | (data[5]<<8) | (data[6]<<16) | (data[7]<<24);;
+          motor2.setSpeed(speed);
       }
     } else {
       //message is comprised of multiple frames or the frame is split into multiple packets

@@ -15,15 +15,24 @@
       margin: auto;
       display: block;
       width: 200px;
+      height: 100px;
       margin-top: 30px;
 
       transform: rotate(270deg) translateX(-100px);
-      width: 200px;
+    }
+
+    #joystick1 {
+      transform: rotate(270deg) translateX(-100px) translateY(-100px);
+    }
+
+    #joystick2 {
+      transform: rotate(270deg) translateX(30px) translateY(100px);
     }
     </style>
   </head>
   <body id="body" onload="onBodyLoad()">
-    <input type="range" min="-1024" max="1024" value="0" step="1" id="speed" class="joystick">
+    <input type="range" min="-1024" max="1024" value="0" step="1" class="joystick" id="joystick1">
+    <input type="range" min="-1024" max="1024" value="0" step="1" class="joystick" id="joystick2">
 
     <script>
         var ws = null;
@@ -32,9 +41,9 @@
           console.log(message);
         }
 
-        function sendSpeed(speed){
+        function sendSpeed(motorNumber, speed){
           var buf = new Int32Array(2);
-          buf[0] = 1;
+          buf[0] = motorNumber;
           buf[1] = speed;
           ws.send(buf);
         }
@@ -69,20 +78,24 @@
 
         startSocket();
 
-      const speedElement = document.getElementById('speed');
-      speedElement.addEventListener('input', value => {
-        sendSpeed(speedElement.value);
-      });
+        function initJoystick(speedElement, motorNumber) {
+          speedElement.addEventListener('input', value => {
+            sendSpeed(motorNumber, speedElement.value);
+          });
 
-      speedElement.addEventListener('mouseup', () => setTimeout(() => { 
-        speedElement.value = 0
-        ; sendSpeed(0);
-      }, 0));
-      
-      speedElement.addEventListener('touchend', () => setTimeout(() => { 
-        speedElement.value = 0
-        ; sendSpeed(0);
-      }, 0));
+          speedElement.addEventListener('mouseup', () => setTimeout(() => { 
+            speedElement.value = 0
+            ; sendSpeed(motorNumber, 0);
+          }, 0));
+          
+          speedElement.addEventListener('touchend', () => setTimeout(() => { 
+            speedElement.value = 0
+            ; sendSpeed(motorNumber, 0);
+          }, 0));
+        }
+
+        initJoystick(document.getElementById('joystick1'), 1);
+        initJoystick(document.getElementById('joystick2'), 2);
     </script>
   </body>
 </html>

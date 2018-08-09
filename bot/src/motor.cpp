@@ -1,6 +1,7 @@
 #include "motor.hpp"
 
 void Motor::init() {
+    setSpeed(0);
 }
 
 int Motor::getSpeed()
