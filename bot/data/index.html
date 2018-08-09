@@ -4,36 +4,30 @@
     <meta http-equiv="Content-type" content="text/html; charset=utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>RMF Remote Control</title>
-    <style type="text/css" media="screen">
+    <style type="text/css" media="screen">		
+    html, body { height: 100%; }
     body {
-      margin:0;
-      padding:0;
-      background-color: black;
-    }
-
-    .joystick {
-      margin: auto;
-      display: block;
-      width: 200px;
-      height: 100px;
-      margin-top: 30px;
-
-      transform: rotate(270deg) translateX(-100px);
-    }
-
-    #joystick1 {
-      transform: rotate(270deg) translateX(-100px) translateY(-100px);
-    }
-
-    #joystick2 {
-      transform: rotate(270deg) translateX(30px) translateY(100px);
-    }
+			overflow	: hidden;
+			padding		: 0;
+			margin		: 0;
+			background-color: blue;
+		}
+    #container {
+			width		: 100%;
+			height		: 100%;
+			overflow	: hidden;
+			padding		: 0;
+			margin		: 0;
+			-webkit-user-select	: none;
+			-moz-user-select	: none;
+		}
     </style>
   </head>
-  <body id="body" onload="onBodyLoad()">
-    <input type="range" min="-1024" max="1024" value="0" step="1" class="joystick" id="joystick1">
-    <input type="range" min="-1024" max="1024" value="0" step="1" class="joystick" id="joystick2">
+  <body id="body">		
+    <div id="container"></div>
+    <span id="result"></span>
 
+    <script src="virtualjoystick.js"></script>
     <script>
         var ws = null;
 
@@ -42,19 +36,26 @@
         }
 
         function sendSpeed(motorNumber, speed){
+          if (!connected) {
+            return;
+          }
           var buf = new Int32Array(2);
           buf[0] = motorNumber;
-          buf[1] = speed;
+          buf[1] = speed >> 0;
           ws.send(buf);
         }
         
+        var connected = false;
         function startSocket(){
-          ws = new WebSocket('ws://'+document.location.host+'/ws',['arduino']);
+          var host = document.location.host; // '192.168.178.107';
+          ws = new WebSocket('ws://'+host+'/ws',['arduino']);
           ws.binaryType = "arraybuffer";
           ws.onopen = function(e){
             addMessage("Connected");
+            connected = true;
           };
           ws.onclose = function(e){
+            connected = false;
             addMessage("Disconnected");
           };
           ws.onerror = function(e){
@@ -78,24 +79,60 @@
 
         startSocket();
 
-        function initJoystick(speedElement, motorNumber) {
-          speedElement.addEventListener('input', value => {
-            sendSpeed(motorNumber, speedElement.value);
-          });
+      var limit = 100;
 
-          speedElement.addEventListener('mouseup', () => setTimeout(() => { 
-            speedElement.value = 0
-            ; sendSpeed(motorNumber, 0);
-          }, 0));
-          
-          speedElement.addEventListener('touchend', () => setTimeout(() => { 
-            speedElement.value = 0
-            ; sendSpeed(motorNumber, 0);
-          }, 0));
-        }
+        var joystick	= new VirtualJoystick({
+          container	: document.getElementById('container'),
+          mouseSupport	: true,
+          limitStickTravel: true,
+		      stickRadius	: limit
+        });
+        joystick.addEventListener('touchStart', function(){
+          console.log('down')
+        })
+        joystick.addEventListener('touchEnd', function(){
+          console.log('up')
+        })
 
-        initJoystick(document.getElementById('joystick1'), 1);
-        initJoystick(document.getElementById('joystick2'), 2);
+        setInterval(function(){
+          var x = joystick.deltaX() / limit;
+          var y = joystick.deltaY() / limit;
+
+          var value = Math.min(1, Math.sqrt(x * x + y * y));
+          var horizontalness = 1 - Math.abs(Math.atan(y / x) / (Math.PI / 2));
+
+          var left = 0;
+          var right = 0;
+
+          if (y > 0) {
+            if (x > 0) {
+              // bottom right
+              left = -1 + 2 * horizontalness;
+              right = -1;
+            } else if ( x < 0) {
+              // bottom left
+              right = -1 + 2 * horizontalness;
+              left = -1;
+            }
+          } else if (y < 0) {
+            if (x > 0) {
+              // top right
+              right = 1 - 2 * horizontalness;
+              left = 1;
+            } else {
+              // top left
+              left = 1 - 2 * horizontalness;
+              right = 1;
+            }
+          }
+
+          left *= value;
+          right *= value;
+
+          sendSpeed(1, left * 1024);
+          sendSpeed(2, right * 1024);
+          console.log(Math.round(left * 1024), Math.round(right * 1024));
+        }, 1/30 * 1000);
     </script>
   </body>
 </html>
