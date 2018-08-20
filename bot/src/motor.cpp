@@ -26,6 +26,7 @@ void Motor::setSpeed(int newSpeed)
 
 void Motor::setOutputs(int value1, int value2)
 {
-    analogWrite(port1, value1);
-    analogWrite(port2, value2);
+    // the driver uses inverted inputs
+    analogWrite(port1, MAX_SPEED - value1);
+    analogWrite(port2, MAX_SPEED - value2);
 }
