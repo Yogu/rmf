@@ -10,26 +10,37 @@
 			overflow	: hidden;
 			padding		: 0;
 			margin		: 0;
-			background-color: blue;
 		}
-    #container {
-			width		: 100%;
+    .container {
+      display: block;
+      float: left;
 			height		: 100%;
 			overflow	: hidden;
 			padding		: 0;
 			margin		: 0;
 			-webkit-user-select	: none;
 			-moz-user-select	: none;
+      position: static !important;
+    }
+    #stick-container {
+			width		: 30%;
+			background-color: green;
+		}
+    #container {
+			width		: 70%;
+			background-color: blue;
 		}
     </style>
   </head>
   <body id="body">		
-    <div id="container"></div>
+    <div class="container" id="stick-container"></div>
+    <div class="container" id="container"></div>
     <span id="result"></span>
 
     <script src="virtualjoystick.js"></script>
     <script>
         var ws = null;
+        var lastSpeeds = {};
 
         function addMessage(message) {
           console.log(message);
@@ -39,15 +50,20 @@
           if (!connected) {
             return;
           }
+          if (lastSpeeds[motorNumber] === speed) {
+            return;
+          }
           var buf = new Int32Array(2);
           buf[0] = motorNumber;
           buf[1] = speed >> 0;
           ws.send(buf);
+          lastSpeeds[motorNumber] = speed;
         }
         
         var connected = false;
         function startSocket(){
-          var host = document.location.host; // '192.168.178.107';
+          //var host = '192.168.1.26';
+          var host = document.location.host;
           ws = new WebSocket('ws://'+host+'/ws',['arduino']);
           ws.binaryType = "arraybuffer";
           ws.onopen = function(e){
@@ -87,12 +103,13 @@
           limitStickTravel: true,
 		      stickRadius	: limit
         });
-        joystick.addEventListener('touchStart', function(){
-          console.log('down')
-        })
-        joystick.addEventListener('touchEnd', function(){
-          console.log('up')
-        })
+
+var stickJoystick	= new VirtualJoystick({
+  container	: document.getElementById('stick-container'),
+  mouseSupport	: true,
+  limitStickTravel: true,
+  stickRadius	: limit
+});
 
         setInterval(function(){
           var x = joystick.deltaX() / limit;
@@ -129,9 +146,11 @@
           left *= value;
           right *= value;
 
-          sendSpeed(1, left * 1024);
-          sendSpeed(2, right * 1024);
-          console.log(Math.round(left * 1024), Math.round(right * 1024));
+          sendSpeed(1, left * 1000);
+          sendSpeed(2, right * 1000);
+
+          var stick = - stickJoystick.deltaY() / limit;
+          sendSpeed(3, stick * 1000);
         }, 1/30 * 1000);
     </script>
   </body>
