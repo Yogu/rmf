@@ -6,7 +6,7 @@
 class Motor {
     public:
         Motor(int port1, int port2): port1(port1), port2(port2) { init(); }
-        static const int MAX_SPEED = 1024;
+        static const int MAX_SPEED = 1023;
         void setSpeed(int newSpeed);
         int getSpeed();
         
