@@ -7,14 +7,17 @@
 #include <ESPAsyncWebServer.h>
 #include <SPIFFSEditor.h>
 #include "motor.hpp"
+#include "stepper.hpp"
 
 // SKETCH BEGIN
 AsyncWebServer server(80);
 AsyncWebSocket ws("/ws");
 AsyncEventSource events("/events");
 
-Motor motor1(D1, D2);
-Motor motor2(D3, D4);
+// das muss so
+Motor motor1(D1, D0);
+Motor motor2(D3, D2);
+Stepper stepper(D5, D6, D7, D8);
 
 void onWsEvent(AsyncWebSocket * server, AsyncWebSocketClient * client, AwsEventType type, void * arg, uint8_t *data, size_t len){
   if(type == WS_EVT_CONNECT){
@@ -47,15 +50,22 @@ void onWsEvent(AsyncWebSocket * server, AsyncWebSocketClient * client, AwsEventT
       }
       Serial.printf("%s\n",msg.c_str());
 
-      if (info->opcode == WS_BINARY && info->len >= 2 && data[0] == 1)
+      if (info->opcode == WS_BINARY && info->len >= 2)
       {
-          int speed = data[4] | (data[5]<<8) | (data[6]<<16) | (data[7]<<24);;
-          motor1.setSpeed(speed);
-      }
-      else if(info->opcode == WS_BINARY && info->len >= 2 && data[0] == 2)
-      {
-          int speed = data[4] | (data[5]<<8) | (data[6]<<16) | (data[7]<<24);;
-          motor2.setSpeed(speed);
+        int speed = data[4] | (data[5]<<8) | (data[6]<<16) | (data[7]<<24);
+
+        switch (data[0])
+        {
+          case 1:
+            motor1.setSpeed(speed);
+            break;
+          case 2:
+            motor2.setSpeed(speed);
+            break;
+          case 3:
+            stepper.setSpeed(speed);
+            break;
+        }
       }
     } else {
       //message is comprised of multiple frames or the frame is split into multiple packets
@@ -215,5 +225,5 @@ void setup(){
 }
 
 void loop(){
-  ArduinoOTA.handle();
+  stepper.doSequence();
 }
