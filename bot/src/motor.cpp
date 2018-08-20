@@ -1,6 +1,8 @@
 #include "motor.hpp"
 
 void Motor::init() {
+    pinMode(port1, OUTPUT);
+    pinMode(port2, OUTPUT);
     setSpeed(0);
 }
 
